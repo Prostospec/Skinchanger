@@ -1,158 +1,100 @@
-// main.cpp
+#include <iostream>
 #include <windows.h>
-#include <d3d11.h>
-#include "imgui.h"
-#include "imgui_impl_win32.h"
-#include "imgui_impl_dx11.h"
-#include <string>
+#include <tlhelp32.h>
+#include "memory_utils.h"
 
-// Для простоты скинов и оружия
-struct Skin {
-    std::string name;
-    std::string rarity;
-};
+HANDLE g_hProcess = NULL;
 
-struct Weapon {
-    std::string name;
-    Skin skins[2];
-};
-
-// Данные для отображения
-Weapon weapons[] = {
-    {"AK-47", {{"Redline", "Classified"}, {"Vulcan", "Classified"}}},
-    {"AWP", {{"Dragon Lore", "Covert"}, {"Gungnir", "Covert"}}},
-    {"Knife", {{"Fade", "Covert"}, {"Marble Fade", "Covert"}}}
-};
-
-static int selectedWeapon = 0;
-static int selectedSkin = 0;
-static bool showOverlayInOBS = false;
-
-LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+uintptr_t GetModuleBaseAddress(DWORD procId, const wchar_t* modName)
 {
-    if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
-        return true;
-    return DefWindowProc(hWnd, msg, wParam, lParam);
+    uintptr_t modBaseAddr = 0;
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, procId);
+    if (hSnap != INVALID_HANDLE_VALUE)
+    {
+        MODULEENTRY32 modEntry;
+        modEntry.dwSize = sizeof(modEntry);
+        if (Module32First(hSnap, &modEntry))
+        {
+            do
+            {
+                if (!_wcsicmp(modEntry.szModule, modName))
+                {
+                    modBaseAddr = (uintptr_t)modEntry.modBaseAddr;
+                    break;
+                }
+            } while (Module32Next(hSnap, &modEntry));
+        }
+    }
+    CloseHandle(hSnap);
+    return modBaseAddr;
 }
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int)
+DWORD GetProcessIdByName(const wchar_t* procName)
 {
-    // Регистрация окна
-    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0, 0,
-                      GetModuleHandle(NULL), NULL, NULL, NULL, NULL,
-                      L"CS2SkinChanger", NULL };
-    RegisterClassEx(&wc);
-    HWND hwnd = CreateWindow(wc.lpszClassName, L"CS2 SkinChanger", WS_OVERLAPPEDWINDOW,
-                             100, 100, 600, 400, NULL, NULL, wc.hInstance, NULL);
-
-    // Инициализация DirectX11
-    D3D_FEATURE_LEVEL featureLevel;
-    ID3D11Device* device;
-    ID3D11DeviceContext* context;
-    DXGI_SWAP_CHAIN_DESC sd = {};
-    sd.BufferCount = 1;
-    sd.BufferDesc.Width = 600;
-    sd.BufferDesc.Height = 400;
-    sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.OutputWindow = hwnd;
-    sd.SampleDesc.Count = 1;
-    sd.Windowed = TRUE;
-    IDXGISwapChain* swapChain;
-    D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0,
-                                  NULL, 0, D3D11_SDK_VERSION, &sd, &swapChain,
-                                  &device, &featureLevel, &context);
-
-    ID3D11RenderTargetView* renderTargetView;
-    ID3D11Texture2D* backBuffer;
-    swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
-    device->CreateRenderTargetView(backBuffer, NULL, &renderTargetView);
-    backBuffer->Release();
-
-    // Инициализация ImGui
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
-    ImGui::StyleColorsDark();
-
-    ImGui_ImplWin32_Init(hwnd);
-    ImGui_ImplDX11_Init(device, context);
-
-    ShowWindow(hwnd, SW_SHOWDEFAULT);
-    UpdateWindow(hwnd);
-
-    // Главный цикл
-    MSG msg;
-    ZeroMemory(&msg, sizeof(msg));
-    while (msg.message != WM_QUIT)
+    DWORD procId = 0;
+    HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnap != INVALID_HANDLE_VALUE)
     {
-        if (PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE))
+        PROCESSENTRY32 procEntry;
+        procEntry.dwSize = sizeof(procEntry);
+        if (Process32First(hSnap, &procEntry))
         {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-            continue;
-        }
-
-        ImGui_ImplDX11_NewFrame();
-        ImGui_ImplWin32_NewFrame();
-        ImGui::NewFrame();
-
-        // Наш GUI
-        ImGui::Begin("CS2 SkinChanger");
-
-        ImGui::Text("Выбери оружие:");
-        if (ImGui::BeginCombo("##weapon", weapons[selectedWeapon].name.c_str()))
-        {
-            for (int n = 0; n < IM_ARRAYSIZE(weapons); n++)
+            do
             {
-                bool is_selected = (selectedWeapon == n);
-                if (ImGui::Selectable(weapons[n].name.c_str(), is_selected))
-                    selectedWeapon = n;
-                if (is_selected)
-                    ImGui::SetItemDefaultFocus();
-            }
-            ImGui::EndCombo();
+                if (!_wcsicmp(procEntry.szExeFile, procName))
+                {
+                    procId = procEntry.th32ProcessID;
+                    break;
+                }
+            } while (Process32Next(hSnap, &procEntry));
         }
+    }
+    CloseHandle(hSnap);
+    return procId;
+}
 
-        ImGui::Text("Выбери скин:");
-        if (ImGui::BeginCombo("##skin", weapons[selectedWeapon].skins[selectedSkin].name.c_str()))
-        {
-            for (int n = 0; n < 2; n++)
-            {
-                bool is_selected = (selectedSkin == n);
-                if (ImGui::Selectable(weapons[selectedWeapon].skins[n].name.c_str(), is_selected))
-                    selectedSkin = n;
-                if (is_selected)
-                    ImGui::SetItemDefaultFocus();
-            }
-            ImGui::EndCombo();
-        }
-
-        ImGui::Checkbox("Show overlay in OBS", &showOverlayInOBS);
-
-        ImGui::Text("Текущий выбор: %s - %s", weapons[selectedWeapon].name.c_str(),
-                    weapons[selectedWeapon].skins[selectedSkin].name.c_str());
-
-        ImGui::End();
-
-        ImGui::Render();
-        context->OMSetRenderTargets(1, &renderTargetView, NULL);
-        context->ClearRenderTargetView(renderTargetView, (float[]){0.1f, 0.1f, 0.1f, 1.0f});
-        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-        swapChain->Present(1, 0);
+int main()
+{
+    const wchar_t* procName = L"cs2.exe";  // имя процесса CS2 (пример)
+    DWORD pid = GetProcessIdByName(procName);
+    if (!pid)
+    {
+        std::cout << "Process not found\n";
+        return 1;
     }
 
-    // Очистка
-    ImGui_ImplDX11_Shutdown();
-    ImGui_ImplWin32_Shutdown();
-    ImGui::DestroyContext();
+    g_hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+    if (!g_hProcess)
+    {
+        std::cout << "Failed to open process\n";
+        return 1;
+    }
 
-    renderTargetView->Release();
-    swapChain->Release();
-    context->Release();
-    device->Release();
+    uintptr_t baseAddress = GetModuleBaseAddress(pid, procName);
+    if (!baseAddress)
+    {
+        std::cout << "Failed to get module base address\n";
+        CloseHandle(g_hProcess);
+        return 1;
+    }
 
-    UnregisterClass(wc.lpszClassName, wc.hInstance);
+    uintptr_t endAddress = baseAddress + 0x2000000; // пример - 32 Мб для сканирования
 
+    // Пример паттерна — нужно заменить на актуальный паттерн из оффсетов
+    const char* pattern = "\x48\x8B\x05\x00\x00\x00\x00\x48\x85\xC0";
+    const char* mask = "xxx????xx";
+
+    uintptr_t foundAddress = FindPattern(g_hProcess, baseAddress, endAddress, pattern, mask);
+
+    if (foundAddress != 0)
+    {
+        std::cout << "Pattern found at: 0x" << std::hex << foundAddress << std::dec << std::endl;
+    }
+    else
+    {
+        std::cout << "Pattern not found\n";
+    }
+
+    CloseHandle(g_hProcess);
     return 0;
 }
