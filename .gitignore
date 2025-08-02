@@ -1,0 +1,27 @@
+# Папка для сборки
+build/
+
+# Исполняемые файлы
+*.exe
+*.dll
+
+# Файлы объектного кода и прочее
+*.obj
+*.pdb
+*.ilk
+*.log
+
+# Файлы Visual Studio
+.vs/
+*.vcxproj*
+*.user
+*.suo
+
+# Temporary files
+*.tmp
+*.cache
+*.log
+
+# Игнорировать скрытые системные файлы
+Thumbs.db
+.DS_Store
