@@ -1,45 +1,34 @@
 #include "memory_utils.h"
-#include <tlhelp32.h>
+#include <vector>
 
-DWORD GetProcessIdByName(const std::wstring& processName)
-{
-    DWORD processId = 0;
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == INVALID_HANDLE_VALUE)
-        return 0;
-
-    PROCESSENTRY32W entry;
-    entry.dwSize = sizeof(entry);
-
-    if (Process32FirstW(snapshot, &entry))
-    {
-        do
-        {
-            if (processName == entry.szExeFile)
-            {
-                processId = entry.th32ProcessID;
-                break;
-            }
-        } while (Process32NextW(snapshot, &entry));
-    }
-
-    CloseHandle(snapshot);
-    return processId;
-}
-
-HANDLE OpenProcessHandle(DWORD processId)
-{
-    return OpenProcess(PROCESS_ALL_ACCESS, FALSE, processId);
-}
-
-bool ReadMemory(HANDLE hProcess, uintptr_t address, void* buffer, SIZE_T size)
+bool ReadMemory(HANDLE hProcess, uintptr_t address, void* buffer, size_t size)
 {
     SIZE_T bytesRead;
     return ReadProcessMemory(hProcess, (LPCVOID)address, buffer, size, &bytesRead) && bytesRead == size;
 }
 
-bool WriteMemory(HANDLE hProcess, uintptr_t address, void* buffer, SIZE_T size)
+bool DataCompare(const BYTE* data, const BYTE* pattern, const char* mask)
 {
-    SIZE_T bytesWritten;
-    return WriteProcessMemory(hProcess, (LPVOID)address, buffer, size, &bytesWritten) && bytesWritten == size;
+    for (; *mask; ++mask, ++data, ++pattern)
+    {
+        if (*mask == 'x' && *data != *pattern)
+            return false;
+    }
+    return true;
+}
+
+uintptr_t FindPattern(HANDLE hProcess, uintptr_t startAddress, uintptr_t endAddress, const char* pattern, const char* mask)
+{
+    SIZE_T size = endAddress - startAddress;
+    std::vector<BYTE> buffer(size);
+
+    if (!ReadMemory(hProcess, startAddress, buffer.data(), size))
+        return 0;
+
+    for (SIZE_T i = 0; i < size; ++i)
+    {
+        if (DataCompare(buffer.data() + i, (const BYTE*)pattern, mask))
+            return startAddress + i;
+    }
+    return 0;
 }
