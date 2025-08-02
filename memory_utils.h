@@ -1,8 +1,6 @@
 #pragma once
 #include <windows.h>
-#include <string>
+#include <cstdint>
 
-DWORD GetProcessIdByName(const std::wstring& processName);
-HANDLE OpenProcessHandle(DWORD processId);
-bool ReadMemory(HANDLE hProcess, uintptr_t address, void* buffer, SIZE_T size);
-bool WriteMemory(HANDLE hProcess, uintptr_t address, void* buffer, SIZE_T size);
+bool ReadMemory(HANDLE hProcess, uintptr_t address, void* buffer, size_t size);
+uintptr_t FindPattern(HANDLE hProcess, uintptr_t startAddress, uintptr_t endAddress, const char* pattern, const char* mask);
